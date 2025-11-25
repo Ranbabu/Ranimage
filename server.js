@@ -1,65 +1,66 @@
 const express = require('express');
 const cors = require('cors');
-const { search } = require('duck-duck-scrape');
+const google = require('google-this'); // Google Library
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 
-// होमपेज चेक
 app.get('/', (req, res) => {
-  res.send('✅ Search Server is Live! (Images + Videos)');
+  res.send('✅ Google Search Server is Live!');
 });
 
-// API: Images और Videos दोनों के लिए
 app.get('/api/search', async (req, res) => {
-  const { q, type } = req.query; // type can be 'image' or 'video'
+  const { q, type } = req.query;
 
   if (!q) {
-    return res.status(400).json({ error: 'Query "q" is required' });
+    return res.status(400).json({ error: 'Query is required' });
   }
 
   try {
-    const searchType = type === 'video' ? 'videos' : 'image';
-    
-    // DuckDuckGo से सर्च करें
-    const searchResults = await search(q, {
-      searchType: searchType,
-      safeSearch: 0 // 0=Off, 1=Moderate
-    });
+    let formattedResults = [];
 
-    // डेटा को सही फॉर्मेट में बदलें
-    const formatted = searchResults.results.map(item => {
-      if (type === 'video') {
-        return {
-          title: item.title || 'Video Result',
-          thumbnail: item.images ? item.images.medium : item.image, // वीडियो का थंबनेल
-          url: item.content || item.url, // वीडियो का लिंक
-          duration: item.duration || '',
-          isVideo: true
-        };
-      } else {
-        return {
-          title: item.title || 'Image Result',
-          image: item.image,
-          thumbnail: item.thumbnail,
-          url: item.url,
-          source: item.source,
-          isVideo: false
-        };
-      }
-    });
+    if (type === 'video') {
+      // Google Video Search
+      const response = await google.search(q, {
+        page: 0,
+        safe: false,
+        additional_params: { tbm: 'vid' } // 'vid' means Video Tab
+      });
+
+      // Data formatting
+      formattedResults = response.results.map(item => ({
+        title: item.title,
+        // Google video thumbnail kabhi kabhi nahi deta, isliye fallback
+        thumbnail: item.favicons?.high_res || 'https://cdn-icons-png.flaticon.com/512/1384/1384060.png', 
+        url: item.url,
+        isVideo: true
+      }));
+
+    } else {
+      // Google Image Search
+      const images = await google.image(q, { safe: false });
+
+      // Data formatting
+      formattedResults = images.map(item => ({
+        title: item.origin.title || 'Google Image',
+        image: item.url,       // Full Image
+        thumbnail: item.preview.url, // Small Image
+        url: item.origin.website.url,
+        source: 'Google',
+        isVideo: false
+      }));
+    }
 
     res.json({
-      results: formatted,
-      type: type || 'image',
-      total: formatted.length
+      results: formattedResults,
+      total: formattedResults.length
     });
 
   } catch (error) {
     console.error('Search Error:', error);
-    res.status(500).json({ error: 'Server Error', details: error.message });
+    res.status(500).json({ error: 'Search Failed', details: error.message });
   }
 });
 
