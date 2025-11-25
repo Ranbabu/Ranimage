@@ -1,14 +1,25 @@
 const express = require('express');
 const cors = require('cors');
-const google = require('google-this'); // Google Library
+const gis = require('g-i-s');      // Google Images के लिए
+const yts = require('yt-search');  // YouTube Videos के लिए
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 
+// Google Image Search को Promise में बदलने के लिए फंक्शन
+function googleImage(term) {
+  return new Promise((resolve, reject) => {
+    gis(term, (error, results) => {
+      if (error) reject(error);
+      else resolve(results);
+    });
+  });
+}
+
 app.get('/', (req, res) => {
-  res.send('✅ Google Search Server is Live!');
+  res.send('✅ Server is Live! (Google Images + YouTube)');
 });
 
 app.get('/api/search', async (req, res) => {
@@ -22,32 +33,30 @@ app.get('/api/search', async (req, res) => {
     let formattedResults = [];
 
     if (type === 'video') {
-      // Google Video Search
-      const response = await google.search(q, {
-        page: 0,
-        safe: false,
-        additional_params: { tbm: 'vid' } // 'vid' means Video Tab
-      });
+      // --- YouTube Search Logic ---
+      const videoResult = await yts(q);
+      const videos = videoResult.videos.slice(0, 30); // टॉप 30 वीडियो
 
-      // Data formatting
-      formattedResults = response.results.map(item => ({
+      formattedResults = videos.map(item => ({
         title: item.title,
-        // Google video thumbnail kabhi kabhi nahi deta, isliye fallback
-        thumbnail: item.favicons?.high_res || 'https://cdn-icons-png.flaticon.com/512/1384/1384060.png', 
+        thumbnail: item.thumbnail,
         url: item.url,
+        duration: item.timestamp,
+        views: item.views,
+        source: 'YouTube',
         isVideo: true
       }));
 
     } else {
-      // Google Image Search
-      const images = await google.image(q, { safe: false });
-
-      // Data formatting
-      formattedResults = images.map(item => ({
-        title: item.origin.title || 'Google Image',
-        image: item.url,       // Full Image
-        thumbnail: item.preview.url, // Small Image
-        url: item.origin.website.url,
+      // --- Google Image Logic ---
+      const images = await googleImage(q);
+      
+      // टॉप 80 इमेजेस निकालें
+      formattedResults = images.slice(0, 80).map(item => ({
+        title: 'Google Image',
+        image: item.url,
+        thumbnail: item.url, // Google GIS कभी-कभी थंबनेल अलग नहीं देता
+        url: item.url,
         source: 'Google',
         isVideo: false
       }));
@@ -55,7 +64,8 @@ app.get('/api/search', async (req, res) => {
 
     res.json({
       results: formattedResults,
-      total: formattedResults.length
+      total: formattedResults.length,
+      source: type === 'video' ? 'YouTube' : 'Google Images'
     });
 
   } catch (error) {
